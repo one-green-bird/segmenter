@@ -8,32 +8,10 @@ import segm.utils.torch as ptu
 
 
 def init_process(backend="nccl"):
-    print(f"Starting process with rank {ptu.dist_rank}...", flush=True)
-
-    if "SLURM_STEPS_GPUS" in os.environ:
-        gpu_ids = os.environ["SLURM_STEP_GPUS"].split(",")
-        os.environ["MASTER_PORT"] = str(12345 + int(min(gpu_ids)))
-    else:
-        os.environ["MASTER_PORT"] = str(12345)
-
-    if "SLURM_JOB_NODELIST" in os.environ:
-        hostnames = hostlist.expand_hostlist(os.environ["SLURM_JOB_NODELIST"])
-        os.environ["MASTER_ADDR"] = hostnames[0]
-    else:
-        os.environ["MASTER_ADDR"] = "127.0.0.1"
 
     dist.init_process_group(
-        backend,
-        rank=ptu.dist_rank,
-        world_size=ptu.world_size,
+        backend,init_method='env://'
     )
-    print(f"Process {ptu.dist_rank} is connected.", flush=True)
-    dist.barrier()
-
-    silence_print(ptu.dist_rank == 0)
-    if ptu.dist_rank == 0:
-        print(f"All processes are connected.", flush=True)
-
 
 def silence_print(is_master):
     """
