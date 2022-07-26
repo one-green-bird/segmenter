@@ -106,7 +106,7 @@ dataset:
   ade20k:
     epochs: 64
     eval_freq: 2
-    batch_size: 8
+    batch_size: 16
     learning_rate: 0.001
     im_size: 512
     crop_size: 512
