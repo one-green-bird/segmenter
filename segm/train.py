@@ -1,4 +1,5 @@
 import sys
+sys.path.append("/home/lcx/segmenter-master")
 from pathlib import Path
 import yaml
 import json
@@ -25,14 +26,14 @@ from segm.engine import train_one_epoch, evaluate
 
 
 @click.command(help="")
-@click.option("--log-dir", type=str, help="logging directory")
-@click.option("--dataset", type=str)
+@click.option("--log-dir", default="seg_tiny_mask", type=str, help="logging directory")
+@click.option("--dataset", default="ade20k", type=str)
 @click.option("--im-size", default=None, type=int, help="dataset resize size")
 @click.option("--crop-size", default=None, type=int)
 @click.option("--window-size", default=None, type=int)
 @click.option("--window-stride", default=None, type=int)
-@click.option("--backbone", default="", type=str)
-@click.option("--decoder", default="", type=str)
+@click.option("--backbone", default="vit_tiny_patch16_384", type=str)
+@click.option("--decoder", default="mask_transformer", type=str)
 @click.option("--optimizer", default="sgd", type=str)
 @click.option("--scheduler", default="polynomial", type=str)
 @click.option("--weight-decay", default=0.0, type=float)
@@ -44,7 +45,7 @@ from segm.engine import train_one_epoch, evaluate
 @click.option("--normalization", default=None, type=str)
 @click.option("--eval-freq", default=None, type=int)
 @click.option("--amp/--no-amp", default=False, is_flag=True)
-@click.option("--resume/--no-resume", default=True, is_flag=True)
+@click.option("--resume/--no-resume", default=False, is_flag=True)
 def main(
     log_dir,
     dataset,
@@ -108,7 +109,7 @@ def main(
     if learning_rate:
         lr = learning_rate
     if eval_freq is None:
-        eval_freq = dataset_cfg.get("eval_freq", 1)
+        eval_freq = dataset_cfg.get("eval_freq", 2)
 
     if normalization:
         model_cfg["normalization"] = normalization
@@ -126,7 +127,7 @@ def main(
             batch_size=batch_size,
             normalization=model_cfg["normalization"],
             split="train",
-            num_workers=10,
+            num_workers=1,
         ),
         algorithm_kwargs=dict(
             batch_size=batch_size,
@@ -175,7 +176,6 @@ def main(
     net_kwargs = variant["net_kwargs"]
     net_kwargs["n_cls"] = n_cls
     model = create_segmenter(net_kwargs)
-    model.to(ptu.device)
 
     # optimizer
     optimizer_kwargs = variant["optimizer_kwargs"]
@@ -199,13 +199,18 @@ def main(
         print(f"Resuming training from checkpoint: {checkpoint_path}")
         checkpoint = torch.load(checkpoint_path, map_location="cpu")
         model.load_state_dict(checkpoint["model"])
+        
+        model = nn.DataParallel(model, device_ids=ptu.gpu_id)
+        model.to(ptu.device)
+        
         optimizer.load_state_dict(checkpoint["optimizer"])
         if loss_scaler and "loss_scaler" in checkpoint:
             loss_scaler.load_state_dict(checkpoint["loss_scaler"])
         lr_scheduler.load_state_dict(checkpoint["lr_scheduler"])
         variant["algorithm_kwargs"]["start_epoch"] = checkpoint["epoch"] + 1
     else:
-        sync_model(log_dir, model)
+        model = nn.DataParallel(model, device_ids=ptu.gpu_id)
+        model.to(ptu.device)
 
     if ptu.distributed:
         model = DDP(model, device_ids=[ptu.device], find_unused_parameters=True)
